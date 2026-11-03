@@ -1,0 +1,729 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Quiet Sudoku</title>
+<meta name="theme-color" content="#164a47">
+<meta name="description" content="A calm Sudoku game that works offline. Install it for your next flight.">
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="icon" href="./icon-192.png" type="image/png">
+<style>
+  :root {
+    --bg: #f7f3ea;
+    --panel: #fffdf7;
+    --ink: #1f3d3a;
+    --teal: #164a47;
+    --teal-soft: #2b6b66;
+    --line: #8fa6a2;
+    --accent: #d9b26a;
+    --error: #b23a3a;
+    --ok: #2b6b66;
+    --muted: #6b7f7b;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 16px;
+  }
+  header { text-align: center; margin-bottom: 12px; }
+  h1 {
+    margin: 0 0 4px;
+    font-size: 1.5rem;
+    letter-spacing: 0.04em;
+    color: var(--teal);
+  }
+  .subtitle { color: var(--muted); font-size: 0.85rem; }
+  .app {
+    width: 100%;
+    max-width: 560px;
+    background: var(--panel);
+    border: 1px solid #e6dfd2;
+    border-radius: 14px;
+    padding: 14px;
+    box-shadow: 0 6px 18px rgba(22, 74, 71, 0.08);
+  }
+  .toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 10px;
+  }
+  .toolbar label { font-size: 0.85rem; color: var(--muted); }
+  select, button {
+    font: inherit;
+    border-radius: 8px;
+    border: 1px solid var(--line);
+    background: #fbf7ee;
+    color: var(--teal);
+    padding: 8px 10px;
+    cursor: pointer;
+  }
+  button:hover, select:hover { background: #f1ebdf; }
+  button:focus-visible, select:focus-visible, input.cell:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+  button.primary { background: var(--teal); color: #fff; border-color: var(--teal); }
+  button.primary:hover { background: var(--teal-soft); }
+  .meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.85rem;
+    color: var(--muted);
+    margin-bottom: 10px;
+  }
+  .timer { font-variant-numeric: tabular-nums; color: var(--teal); font-weight: 600; }
+  .board {
+    display: grid;
+    grid-template-columns: repeat(9, minmax(0, 1fr));
+    gap: 0;
+    border: 2px solid var(--teal);
+    border-radius: 6px;
+    overflow: hidden;
+    background: #fffdf7;
+  }
+  .cell {
+    min-width: 0;
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    border: 1px solid #d7cec0;
+    background: #fffdf7;
+    color: var(--ink);
+    font-size: clamp(14px, 3.2vw, 22px);
+    text-align: center;
+    padding: 0;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    transition: background 0.15s;
+  }
+  .cell[readonly] { color: var(--teal); background: #f3eee2; }
+  .cell.selected { background: #e8f1ee; box-shadow: inset 0 0 0 2px var(--accent); }
+  .cell.related { background: #f0f6f3; }
+  .cell.wrong { color: var(--error); background: #fbeaea; }
+  .cell.hinted { background: #fdf3d8; }
+  .cell:focus { background: #e8f1ee; }
+  /* 3x3 box borders */
+  .cell[data-index] { border-right: 1px solid #d7cec0; border-bottom: 1px solid #d7cec0; }
+  .cell.box-right { border-right: 2px solid var(--teal); }
+  .cell.box-bottom { border-bottom: 2px solid var(--teal); }
+  .cell.box-left { border-left: 2px solid var(--teal); }
+  .cell.box-top { border-top: 2px solid var(--teal); }
+  .status {
+    margin-top: 10px;
+    min-height: 22px;
+    font-size: 0.9rem;
+    color: var(--teal);
+    text-align: center;
+  }
+  .status.error { color: var(--error); }
+  .status.solved { color: var(--ok); font-weight: 700; }
+  footer {
+    margin-top: 14px;
+    font-size: 0.75rem;
+    color: var(--muted);
+    text-align: center;
+  }
+  .offline-panel { margin-top: 14px; text-align: center; font-size: .85rem; color: var(--muted); }
+  .offline-panel p { margin: 8px 0; }
+  .offline-panel button { margin-top: 4px; }
+  [hidden] { display: none !important; }
+  @media (max-width: 420px) {
+    body { padding: 10px; }
+    .app { padding: 10px; }
+    .toolbar { gap: 6px; }
+    button, select { padding: 7px 8px; font-size: 0.85rem; }
+    .cell { font-size: 16px; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Quiet Sudoku</h1>
+  <div class="subtitle">A calm, offline puzzle</div>
+</header>
+
+<main class="app">
+  <div class="toolbar">
+    <label for="difficulty">Difficulty</label>
+    <select id="difficulty" aria-label="Difficulty">
+      <option value="easy">Easy</option>
+      <option value="medium">Medium</option>
+      <option value="hard">Hard</option>
+    </select>
+    <button id="new-game" class="primary" type="button">New game</button>
+    <button id="check" type="button">Check</button>
+    <button id="hint" type="button">Hint</button>
+    <button id="reset" type="button">Reset</button>
+    <button id="undo" type="button">Undo</button>
+  </div>
+
+  <div class="meta">
+    <span id="difficulty-label">Easy</span>
+    <span class="timer" id="timer" aria-label="Timer">00:00</span>
+  </div>
+
+  <div class="board" id="board" role="grid" aria-label="Sudoku board"></div>
+
+  <div id="status" class="status" aria-live="polite"></div>
+</main>
+
+<aside class="offline-panel" aria-label="Offline installation">
+  <p id="offline-status" role="status">Preparing offline play…</p>
+  <button id="install-app" type="button" hidden>Install on this device</button>
+  <p id="install-help">On Android: Chrome menu → Add to Home screen → Install.</p>
+</aside>
+
+<footer>Generated locally with DeepSeek V4.1 Flash.</footer>
+
+<script>
+(function () {
+  "use strict";
+
+  const STORAGE_KEY = "quiet-sudoku-v1";
+  const DIFFICULTY_CLUES = { easy: 38, medium: 32, hard: 26 };
+
+  // ---- Utilities ----
+  function shuffle(arr) {
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
+  }
+
+  function makeEmptyGrid() {
+    return Array.from({ length: 9 }, () => Array(9).fill(0));
+  }
+
+  // Build a valid complete Sudoku solution via randomized backtracking.
+  function generateSolution() {
+    const grid = makeEmptyGrid();
+    const digits = [1, 2, 3, 4, 5, 6, 7, 8, 9];
+
+    function isSafe(r, c, v) {
+      for (let i = 0; i < 9; i++) {
+        if (grid[r][i] === v) return false;
+        if (grid[i][c] === v) return false;
+      }
+      const br = Math.floor(r / 3) * 3;
+      const bc = Math.floor(c / 3) * 3;
+      for (let i = 0; i < 3; i++) {
+        for (let j = 0; j < 3; j++) {
+          if (grid[br + i][bc + j] === v) return false;
+        }
+      }
+      return true;
+    }
+
+    function fill(pos) {
+      if (pos === 81) return true;
+      const r = Math.floor(pos / 9);
+      const c = pos % 9;
+      const order = shuffle(digits.slice());
+      for (const v of order) {
+        if (isSafe(r, c, v)) {
+          grid[r][c] = v;
+          if (fill(pos + 1)) return true;
+          grid[r][c] = 0;
+        }
+      }
+      return false;
+    }
+
+    fill(0);
+    return grid;
+  }
+
+  // Count solutions capped at 2.
+  function countSolutions(grid, cap) {
+    const g = grid.map(row => row.slice());
+    let count = 0;
+
+    function isSafe(r, c, v) {
+      for (let i = 0; i < 9; i++) {
+        if (g[r][i] === v) return false;
+        if (g[i][c] === v) return false;
+      }
+      const br = Math.floor(r / 3) * 3;
+      const bc = Math.floor(c / 3) * 3;
+      for (let i = 0; i < 3; i++) {
+        for (let j = 0; j < 3; j++) {
+          if (g[br + i][bc + j] === v) return false;
+        }
+      }
+      return true;
+    }
+
+    function solve(pos) {
+      if (count >= cap) return;
+      if (pos === 81) { count++; return; }
+      const r = Math.floor(pos / 9);
+      const c = pos % 9;
+      if (g[r][c] !== 0) {
+        solve(pos + 1);
+        return;
+      }
+      for (let v = 1; v <= 9; v++) {
+        if (isSafe(r, c, v)) {
+          g[r][c] = v;
+          solve(pos + 1);
+          g[r][c] = 0;
+          if (count >= cap) return;
+        }
+      }
+    }
+
+    solve(0);
+    return count;
+  }
+
+  // Remove clues from a complete solution while keeping uniqueness.
+  function makePuzzle(solution, targetClues) {
+    const puzzle = solution.map(row => row.slice());
+    const positions = [];
+    for (let r = 0; r < 9; r++) {
+      for (let c = 0; c < 9; c++) positions.push([r, c]);
+    }
+    shuffle(positions);
+
+    let clues = 81;
+    for (const [r, c] of positions) {
+      if (clues <= targetClues) break;
+      const saved = puzzle[r][c];
+      puzzle[r][c] = 0;
+      if (countSolutions(puzzle, 2) === 1) {
+        clues--;
+      } else {
+        puzzle[r][c] = saved;
+      }
+    }
+    return puzzle;
+  }
+
+  // ---- State ----
+  const state = {
+    puzzle: new Array(81).fill(0),
+    solution: new Array(81).fill(0),
+    board: new Array(81).fill(0),
+    difficulty: "easy",
+    originalPuzzle: new Array(81).fill(0),
+    history: [],
+    startTime: Date.now(),
+    solved: false,
+    hinted: new Set(),
+    wrong: new Set()
+  };
+
+  const boardEl = document.getElementById("board");
+  const statusEl = document.getElementById("status");
+  const timerEl = document.getElementById("timer");
+  const difficultySelect = document.getElementById("difficulty");
+  const difficultyLabel = document.getElementById("difficulty-label");
+
+  function flat(grid) {
+    const out = [];
+    for (let r = 0; r < 9; r++) for (let c = 0; c < 9; c++) out.push(grid[r][c]);
+    return out;
+  }
+
+  function unflat(arr) {
+    const g = makeEmptyGrid();
+    for (let i = 0; i < 81; i++) g[Math.floor(i / 9)][i % 9] = arr[i];
+    return g;
+  }
+
+  function formatTime(ms) {
+    const total = Math.floor(ms / 1000);
+    const m = Math.floor(total / 60);
+    const s = total % 60;
+    return String(m).padStart(2, "0") + ":" + String(s).padStart(2, "0");
+  }
+
+  function updateTimer() {
+    if (state.solved) return;
+    timerEl.textContent = formatTime(Date.now() - state.startTime);
+  }
+
+  // ---- Rendering ----
+  function buildBoard() {
+    boardEl.innerHTML = "";
+    for (let i = 0; i < 81; i++) {
+      const r = Math.floor(i / 9);
+      const c = i % 9;
+      const input = document.createElement("input");
+      input.type = "text";
+      input.className = "cell";
+      input.dataset.index = String(i);
+      input.inputMode = "numeric";
+      input.maxLength = 1;
+      input.autocomplete = "off";
+      input.setAttribute("aria-label", "Row " + (r + 1) + ", column " + (c + 1));
+      if (state.puzzle[i] !== 0) {
+        input.value = String(state.puzzle[i]);
+        input.readOnly = true;
+      } else {
+        input.value = state.board[i] !== 0 ? String(state.board[i]) : "";
+      }
+      if (c === 2 || c === 5) input.classList.add("box-right");
+      if (r === 2 || r === 5) input.classList.add("box-bottom");
+      if (c === 0) input.classList.add("box-left");
+      if (r === 0) input.classList.add("box-top");
+      boardEl.appendChild(input);
+    }
+  }
+
+  function renderBoard() {
+    const inputs = boardEl.querySelectorAll("input.cell");
+    inputs.forEach((input, i) => {
+      if (state.puzzle[i] !== 0) {
+        input.value = String(state.puzzle[i]);
+        input.readOnly = true;
+      } else {
+        input.readOnly = false;
+        input.value = state.board[i] !== 0 ? String(state.board[i]) : "";
+      }
+      input.classList.toggle("wrong", state.wrong.has(i));
+      input.classList.toggle("hinted", state.hinted.has(i));
+    });
+  }
+
+  function clearHighlights() {
+    boardEl.querySelectorAll("input.cell").forEach(el => {
+      el.classList.remove("selected", "related");
+    });
+  }
+
+  function highlightCell(index) {
+    clearHighlights();
+    const inputs = boardEl.querySelectorAll("input.cell");
+    const r = Math.floor(index / 9);
+    const c = index % 9;
+    inputs.forEach((el, i) => {
+      const rr = Math.floor(i / 9);
+      const cc = i % 9;
+      if (i === index) el.classList.add("selected");
+      else if (rr === r || cc === c || (Math.floor(rr / 3) === Math.floor(r / 3) && Math.floor(cc / 3) === Math.floor(c / 3))) {
+        el.classList.add("related");
+      }
+    });
+  }
+
+  // ---- Persistence ----
+  function saveState() {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        puzzle: state.puzzle,
+        solution: state.solution,
+        board: state.board,
+        difficulty: state.difficulty
+      }));
+    } catch (e) { /* ignore */ }
+  }
+
+  function isValidSaved(data) {
+    if (!data || typeof data !== "object") return false;
+    if (!Array.isArray(data.puzzle) || data.puzzle.length !== 81) return false;
+    if (!Array.isArray(data.solution) || data.solution.length !== 81) return false;
+    if (!Array.isArray(data.board) || data.board.length !== 81) return false;
+    if (!["easy", "medium", "hard"].includes(data.difficulty)) return false;
+    for (let i = 0; i < 81; i++) {
+      const p = data.puzzle[i], s = data.solution[i], b = data.board[i];
+      if (!Number.isInteger(p) || p < 0 || p > 9) return false;
+      if (!Number.isInteger(s) || s < 1 || s > 9) return false;
+      if (!Number.isInteger(b) || b < 0 || b > 9) return false;
+      if (p !== 0 && p !== s) return false;
+      if (p !== 0 && b !== p) return false;
+    }
+    return true;
+  }
+
+  function loadSaved() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return null;
+      const data = JSON.parse(raw);
+      if (isValidSaved(data)) return data;
+    } catch (e) { /* ignore */ }
+    return null;
+  }
+
+  // ---- Game creation ----
+  function newGame(difficulty) {
+    const diff = ["easy", "medium", "hard"].includes(difficulty) ? difficulty : "easy";
+    const solutionGrid = generateSolution();
+    const target = DIFFICULTY_CLUES[diff];
+    const puzzleGrid = makePuzzle(solutionGrid, target);
+
+    state.puzzle = flat(puzzleGrid);
+    state.solution = flat(solutionGrid);
+    state.board = state.puzzle.slice();
+    state.originalPuzzle = state.puzzle.slice();
+    state.difficulty = diff;
+    state.history = [];
+    state.hinted = new Set();
+    state.wrong = new Set();
+    state.solved = false;
+    state.startTime = Date.now();
+
+    difficultySelect.value = diff;
+    difficultyLabel.textContent = diff.charAt(0).toUpperCase() + diff.slice(1);
+    statusEl.textContent = "";
+    statusEl.className = "status";
+    timerEl.textContent = "00:00";
+
+    buildBoard();
+    renderBoard();
+    saveState();
+  }
+
+  // ---- Editing ----
+  function updateCompletion() {
+    const complete = state.board.every((v, i) => v === state.solution[i]);
+    state.solved = complete;
+    statusEl.textContent = complete ? "Solved! Well done." : "";
+    statusEl.className = complete ? "status solved" : "status";
+  }
+
+  function pushHistory(index, prevValue) {
+    state.history.push({ index, prevValue });
+  }
+
+  function setCell(index, value) {
+    if (state.puzzle[index] !== 0) return;
+    const prev = state.board[index];
+    if (prev === value) return;
+    pushHistory(index, prev);
+    state.board[index] = value;
+    state.wrong.delete(index);
+    state.hinted.delete(index);
+    state.solved = false;
+    renderBoard();
+    saveState();
+    updateCompletion();
+  }
+
+  function clearCell(index) {
+    if (state.puzzle[index] !== 0) return;
+    const prev = state.board[index];
+    if (prev === 0) return;
+    pushHistory(index, prev);
+    state.board[index] = 0;
+    state.wrong.delete(index);
+    state.hinted.delete(index);
+    state.solved = false;
+    renderBoard();
+    saveState();
+    updateCompletion();
+  }
+
+  function undo() {
+    if (state.history.length === 0) {
+      statusEl.textContent = "Nothing to undo.";
+      statusEl.className = "status";
+      return;
+    }
+    const last = state.history.pop();
+    state.board[last.index] = last.prevValue;
+    state.wrong.delete(last.index);
+    state.hinted.delete(last.index);
+    state.solved = false;
+    renderBoard();
+    saveState();
+    statusEl.textContent = "Undone.";
+    statusEl.className = "status";
+  }
+
+  function reset() {
+    state.board = state.originalPuzzle.slice();
+    state.history = [];
+    state.hinted = new Set();
+    state.wrong = new Set();
+    state.solved = false;
+    state.startTime = Date.now();
+    timerEl.textContent = "00:00";
+    renderBoard();
+    saveState();
+    statusEl.textContent = "Reset to original clues.";
+    statusEl.className = "status";
+  }
+
+  function check() {
+    const errors = [];
+    for (let i = 0; i < 81; i++) {
+      if (state.board[i] !== 0 && state.board[i] !== state.solution[i]) {
+        errors.push(i);
+      }
+    }
+    state.wrong = new Set(errors);
+    renderBoard();
+
+    if (errors.length > 0) {
+      statusEl.textContent = "There is a mistake in the puzzle.";
+      statusEl.className = "status error";
+      return;
+    }
+
+    const full = state.board.every((v, i) => v === state.solution[i]);
+    if (full) {
+      state.solved = true;
+      statusEl.textContent = "Solved! Well done.";
+      statusEl.className = "status solved";
+      timerEl.textContent = formatTime(Date.now() - state.startTime);
+    } else {
+      statusEl.textContent = "No mistakes so far.";
+      statusEl.className = "status";
+    }
+  }
+
+  function hint() {
+    // Prefer fixing a wrong editable cell, else fill an empty editable cell.
+    let target = -1;
+    for (let i = 0; i < 81; i++) {
+      if (state.puzzle[i] === 0 && state.board[i] !== 0 && state.board[i] !== state.solution[i]) {
+        target = i;
+        break;
+      }
+    }
+    if (target === -1) {
+      for (let i = 0; i < 81; i++) {
+        if (state.puzzle[i] === 0 && state.board[i] === 0) {
+          target = i;
+          break;
+        }
+      }
+    }
+    if (target === -1) {
+      statusEl.textContent = "No empty or wrong cells to hint.";
+      statusEl.className = "status";
+      return;
+    }
+    const prev = state.board[target];
+    pushHistory(target, prev);
+    state.board[target] = state.solution[target];
+    state.wrong.delete(target);
+    state.hinted.add(target);
+    state.solved = false;
+    renderBoard();
+    saveState();
+    statusEl.textContent = "Hint filled a cell.";
+    statusEl.className = "status";
+    if (state.board.every((v, i) => v === state.solution[i])) updateCompletion();
+  }
+
+  // ---- Events ----
+  boardEl.addEventListener("input", (e) => {
+    const input = e.target;
+    if (!input.classList.contains("cell")) return;
+    const index = Number(input.dataset.index);
+    if (state.puzzle[index] !== 0) {
+      input.value = String(state.puzzle[index]);
+      return;
+    }
+    const raw = input.value;
+    if (raw === "") {
+      clearCell(index);
+      return;
+    }
+    const digit = raw.replace(/[^1-9]/g, "");
+    if (digit.length === 0) {
+      input.value = state.board[index] !== 0 ? String(state.board[index]) : "";
+      return;
+    }
+    const v = Number(digit[0]);
+    input.value = String(v);
+    setCell(index, v);
+  });
+
+  boardEl.addEventListener("keydown", (e) => {
+    const input = e.target;
+    if (!input.classList.contains("cell")) return;
+    const index = Number(input.dataset.index);
+    if (e.key === "Backspace") {
+      e.preventDefault();
+      if (state.puzzle[index] === 0) clearCell(index);
+      return;
+    }
+    if (e.key === "Enter") {
+      e.preventDefault();
+      highlightCell(index);
+      return;
+    }
+  });
+
+  boardEl.addEventListener("focusin", (e) => {
+    const input = e.target;
+    if (!input.classList.contains("cell")) return;
+    highlightCell(Number(input.dataset.index));
+  });
+
+  boardEl.addEventListener("focusout", () => {
+    clearHighlights();
+  });
+
+  document.getElementById("new-game").addEventListener("click", () => {
+    newGame(difficultySelect.value);
+  });
+
+  document.getElementById("check").addEventListener("click", check);
+  document.getElementById("hint").addEventListener("click", hint);
+  document.getElementById("reset").addEventListener("click", reset);
+  document.getElementById("undo").addEventListener("click", undo);
+
+  difficultySelect.addEventListener("change", () => {
+    difficultyLabel.textContent = difficultySelect.value.charAt(0).toUpperCase() + difficultySelect.value.slice(1);
+  });
+
+  // ---- Timer ----
+  setInterval(updateTimer, 1000);
+
+  // ---- Public API ----
+  window.sudoku = {
+    getState() {
+      return {
+        puzzle: state.puzzle.slice(),
+        solution: state.solution.slice(),
+        board: state.board.slice(),
+        difficulty: state.difficulty
+      };
+    },
+    newGame(difficulty) {
+      newGame(difficulty);
+    }
+  };
+
+  // ---- Boot ----
+  const saved = loadSaved();
+  if (saved) {
+    state.puzzle = saved.puzzle.slice();
+    state.solution = saved.solution.slice();
+    state.board = saved.board.slice();
+    state.originalPuzzle = saved.puzzle.slice();
+    state.difficulty = saved.difficulty;
+    state.history = [];
+    state.hinted = new Set();
+    state.wrong = new Set();
+    state.solved = false;
+    state.startTime = Date.now();
+    difficultySelect.value = saved.difficulty;
+    difficultyLabel.textContent = saved.difficulty.charAt(0).toUpperCase() + saved.difficulty.slice(1);
+    buildBoard();
+    renderBoard();
+    updateCompletion();
+  } else {
+    newGame("easy");
+  }
+})();
+</script>
+<script src="./pwa.js" defer></script>
+</body>
+</html>
